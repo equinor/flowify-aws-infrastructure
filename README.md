@@ -2,16 +2,6 @@ CONTENTS
 
 Author: [Yurii Onuk](https://onuk.org.ua)
 
-- [General information](#general-information)
-- [Best Practices](docs/best-practices.md)
-- [Setting up the working environment](docs/setting-up-the-working-environment.md)
-- [Daily use terraform](docs/daily-use-terraform.md)
-- [New environments creation](docs/new-environments-creation.md)
-- [Destroy environment](docs/destroy-environment.md)
-- [AWS role switchers](docs/aws-role-switchers.md)
-- [EKS interaction](docs/eks-interaction.md)
-- [Attaching Environment VPC to the Transit Gateway](docs/attaching-environment-vpc-to-the-transit-gateway.md)
-
 ---
 
 # General information
