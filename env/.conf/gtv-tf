@@ -1,0 +1,120 @@
+#!/bin/bash
+
+function usage () {
+  echo
+  echo "Usage: gtv-tf [terraform options] <terraform subcommand> [terraform args]" >&2
+  echo "  See:     'terraform -h' for all terraform commands" >&2
+  echo "  Example: 'gtv-tf plan -no-color'" >&2
+  echo
+}
+
+#---------------------------------------
+# Determine The Environment
+#---------------------------------------
+SOURCE="${BASH_SOURCE[0]}"
+CUR_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+
+if [[ "$CUR_DIR" == "$DIR" ]]; then
+  echo "Running the script from the wrong directory." >&2
+  echo "CD into the environment's directory and run from there." >&2
+  exit 1
+fi
+
+ENV_NAME=${CUR_DIR##*\/}
+TMP_ENV=${CUR_DIR%\/*}
+PROFILE=${TMP_ENV##*\/}
+FULL_ENV_NAME="${ENV_NAME}.${PROFILE}"
+
+#---------------------------------------
+# Execute The Action
+#---------------------------------------
+ACTION=$1
+if [ "$ACTION" == "" ] || [ "$ACTION" == "-h" ]; then
+  usage
+  exit 1
+fi
+
+if [[ -f "${CUR_DIR}/${FULL_ENV_NAME}.sh" ]]; then
+  # Run Terraform custom script
+  echo "---------------------------------------"
+  echo " Using script ${CUR_DIR}/${FULL_ENV_NAME}.sh"
+  echo "---------------------------------------"
+  export FULL_ENV_NAME ENV_NAME PROFILE
+  sh "${CUR_DIR}/${FULL_ENV_NAME}.sh" "$@"
+else
+  # Run Terraform
+  cd "${CUR_DIR}" || { echo "Could not cd into ${CUR_DIR}" >&2; exit 1; }
+
+  #command -v assume-role > /dev/null && \
+  #  ROLE_WRAPPER="assume-role"
+
+  #command -v gotrole > /dev/null && \
+  #  ROLE_WRAPPER="gotrole"
+
+  #command -v aws-vault > /dev/null && \
+  #  ROLE_WRAPPER="aws-vault exec"
+
+  #if [ -z "${ROLE_WRAPPER}" ]; then
+  #  echo "no role wrapper found!"
+  #  exit 1
+  #fi
+
+  # Extract Vars
+  TMP_ENV_REGION=$(grep region "${ENV_NAME}"."${PROFILE}".tfvars | cut -d'=' -f 2 | sed -e 's/"//g' -e 's/^[[:space:]]*//' )
+  ENV_REGION=$(echo -e "${TMP_ENV_REGION}" )
+
+  TMP_CODE_CLASS=$(readlink main.tf)
+  TMP_CODE_CLASS=${TMP_CODE_CLASS%\/*}
+  TMP_CODE_CLASS=${TMP_CODE_CLASS%\/*}
+  TMP_CODE_CLASS=${TMP_CODE_CLASS##*\/}
+  CODE_CLASS=${TMP_CODE_CLASS}
+
+  echo
+  echo "---------------------------------------"
+  echo "AWS Region:      ${ENV_REGION}"
+  echo "AWS Profile:     ${PROFILE}"
+  echo "AWS Environment: ${FULL_ENV_NAME}"
+  echo "AWS Code Class:  ${CODE_CLASS}"
+  echo "---------------------------------------"
+  echo
+
+  #if [ "$ROLE_WRAPPER" == "aws-vault exec" ]; then
+  #  unset AWS_VAULT
+  #  TF_WRAPPED="$ROLE_WRAPPER $PROFILE -- terraform"
+  #else
+  #  TF_WRAPPED="$ROLE_WRAPPER $PROFILE terraform"
+  #fi
+
+  TF_WRAPPED="terraform"
+
+  if [ "$ACTION" == "init" ]; then
+    $TF_WRAPPED init -backend-config="${ENV_NAME}.${PROFILE}_backend.txt" "${@:2}"
+  elif [ "$ACTION" == "workspace" ]; then
+    $TF_WRAPPED workspace "${@:2}"
+  else
+    $TF_WRAPPED workspace select "$ENV_NAME"
+    # shellcheck disable=SC2181
+    if [ $? -ne 0 ]; then
+      $TF_WRAPPED workspace new "$ENV_NAME"
+      if [ $? -ne 0 ]; then
+        echo "Unable to create workspace $ENV_NAME"
+        exit 1
+      fi
+      echo "Created workspace $ENV_NAME"
+      echo "Setting workspace to $ENV_NAME"
+      $TF_WRAPPED workspace select "$ENV_NAME"
+    fi
+    TF_VARS=()
+    if [ "$ACTION" == "apply" ] || [ "$ACTION" == "console" ] || [ "$ACTION" == "destroy" ] || [ "$ACTION" == "import" ] ||
+       [ "$ACTION" == "plan" ] || [ "$ACTION" == "refresh" ]; then
+      TF_VARS=("-var-file=terraform.tfvars" "-var-file=${ENV_NAME}.${PROFILE}.tfvars")
+    fi
+    $TF_WRAPPED "$ACTION" "${TF_VARS[@]}" "${@:2}"
+  fi
+fi

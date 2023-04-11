@@ -1,0 +1,32 @@
+### Intellij IDEA ###
+.idea/
+.idea_modules/
+
+### Linux ###
+*~
+.Trash-*
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+
+### Terraform ###
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+.terraformrc
+terraform.rc
+terraform.tfplan
+.terraform.lock.hcl
+
+### Other ###
+example.tf
+*.backup
+*.log
+*.bak
+*.tmp
+.*.swp
+kubeconfig

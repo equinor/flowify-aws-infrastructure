@@ -1,0 +1,23 @@
+${jsonencode(
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "AccessForPrecondUser",
+                "Effect": "Allow",
+                "Principal": {
+                    "AWS": "${user_arn}"
+                },
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObjectVersion",
+                    "s3:ListBucketVersions"
+                ],
+                "Resource": [
+                    "${s3_bucket}",
+                    "${s3_bucket}/*"
+                    ]
+            }
+        ]
+    }
+)}

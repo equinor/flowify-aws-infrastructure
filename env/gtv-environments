@@ -1,0 +1,126 @@
+#!/bin/bash
+
+function usage () {
+  echo
+  echo "usage: gtv-environments [--list] [--add env name] [--code-class class]" >&2
+  echo "  The 'env name' must be the full name: usw201.dev" >&2
+  echo
+}
+
+
+SCRIPT="${BASH_SOURCE[0]}"
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+REGION_MAP="${DIR}/.conf/region-map"
+if [ ! -f "$REGION_MAP" ]; then echo "'$REGION_MAP' does not exist." >&2; exit 1; fi
+shopt -s nullglob
+
+
+while [[ $# -gt 0 ]] && [[ "$1" == "--"* ]] ;
+do
+  ARG="$1"
+  shift
+  case "$ARG" in
+    --list ) LIST="true"; ;;
+    --add ) ADD="$1"; shift ;;
+    --code-class ) CODE_CLASS="$1"; shift ;;
+    * ) echo "Unknown arg '$ARG'"; usage; exit 1;
+      ;;
+  esac
+done
+
+if [[ "$LIST" != "" ]]; then
+  REL_PATH=$(realpath --relative-to="$(pwd)" "$DIR")
+  for PROFILE_DIR in $DIR/*; do
+    if [[ -d $PROFILE_DIR ]]; then
+      PROFILE=${PROFILE_DIR##*/}
+      for ENV_DIR in $DIR/$PROFILE/*; do
+        if [[ -f $PROFILE_DIR/${ENV_DIR##*/}/gtv-tf ]]; then
+          echo "${ENV_DIR##*/}.${PROFILE} ${REL_PATH}/${PROFILE}/${ENV_DIR##*/}" | awk '{ printf("%-15s %s\n", $1, $2) }'
+        fi
+      done
+    fi
+  done
+  exit
+elif [[ "$ADD" != "" ]]; then
+  # Setup new directories for an environment
+  ENV_FULL_NAME=$ADD
+  if [[ -z "$ENV_FULL_NAME" ]]; then
+    usage
+    exit 1
+  fi
+  ENV_NAME=${ENV_FULL_NAME%%.*}
+  if [[ -z "$ENV_NAME" ]]; then
+    usage
+    exit 1
+  fi
+
+  PROFILE=${ENV_FULL_NAME##*.}
+  if [[ -z "$PROFILE" || "$PROFILE" == "$ENV_NAME" ]]; then
+    usage
+    exit 1
+  fi
+
+  # Check the profile
+  aws configure get aws_access_key_id --profile ${PROFILE} > /dev/null 2>&1
+  # shellcheck disable=SC2181
+  if [[ $? -ne 0 ]]; then
+    # assuming this is a role
+    aws configure get "profile.${PROFILE}.role_arn" > /dev/null 2>&1 || { echo "Could not find an AWS profile '${PROFILE}'" >&2; exit 1; }
+  fi
+
+  if [[ "$CODE_CLASS" == "" ]]; then
+    CODE_CLASS=$PROFILE
+  fi
+
+  ENV_REGION=$(grep ^"${ENV_NAME%??}" "${REGION_MAP}"|cut -d: -f2)
+  if [[ -z $ENV_REGION ]]; then
+    echo "Error: Region not found in ${REGION_MAP} for '${ENV_NAME%??}'"
+    exit 1
+  fi
+
+  cd "${DIR}"
+  if [[ ! -d ../aws/v.1.1.5/${CODE_CLASS} ]]; then
+    echo "Error: Code class '${CODE_CLASS}' was not found"
+    exit 1
+  fi
+
+  # Check env directory
+  if [[ ! -d ${PROFILE}/${ENV_NAME} ]]; then
+    echo "Creating directory $PROFILE/$ENV_NAME"
+    mkdir -p "${PROFILE}/${ENV_NAME}"
+  fi
+  # Check the gtv-tf script
+  if [[ ! -f ${PROFILE}/${ENV_NAME}/gtv-tf ]]; then
+    echo "Linking script"
+    ln -s "../../.conf/gtv-tf" "${PROFILE}/${ENV_NAME}/gtv-tf"
+  fi
+  # Check the Terraform links
+  for FILE in ../aws/v.1.1.5/"${CODE_CLASS}"/environment/*.tf; do
+    if [[ ! -f ${PROFILE}/${ENV_NAME}/${FILE##*/} ]]; then
+      echo "Linking ${FILE##*/}"
+      ln -s ../../"${FILE}" "${PROFILE}/${ENV_NAME}/${FILE##*/}"
+    fi
+  done
+  if [[ ! -f ${PROFILE}/${ENV_NAME}/terraform.tfvars ]]; then
+    echo "Linking terraform.tfvars"
+    ln -s ../../../aws/v.1.1.5/"${CODE_CLASS}"/environment/terraform.tfvars "${PROFILE}/${ENV_NAME}/terraform.tfvars"
+  fi
+
+  # Write out the env configuration
+  if [[ ! -f ${PROFILE}/${ENV_NAME}/"${ENV_NAME}"."${PROFILE}"_backend.txt ]]; then
+    echo "Writing backend.txt"
+    TMP_BACKEND=$(mktemp)
+    cp ../aws/v.1.1.5/"${CODE_CLASS}"/s3_backend/backend.txt "${TMP_BACKEND}"
+    sed -i -e "s/gtv-.*-terraform-state/gtv-${PROFILE}-terraform-state/g" "${TMP_BACKEND}"
+    sed -i -e "s/\".*_backend_tf_lock/\"${PROFILE}_backend_tf_lock/g" "${TMP_BACKEND}"
+    mv "${TMP_BACKEND}" "${PROFILE}/${ENV_NAME}/${ENV_NAME}.${PROFILE}_backend.txt"
+  fi
+  if [[ ! -f ${PROFILE}/${ENV_NAME}/${ENV_NAME}.${PROFILE}.tfvars ]]; then
+    echo "Writing ${ENV_NAME}.${PROFILE}.tfvars"
+    echo "env_class = \"${PROFILE}\"" > "${PROFILE}"/"${ENV_NAME}"/"${ENV_NAME}"."${PROFILE}".tfvars
+    echo "region    = \"${ENV_REGION}\"" >> "${PROFILE}"/"${ENV_NAME}"/"${ENV_NAME}"."${PROFILE}".tfvars
+    echo "env_name  = \"${ENV_NAME}\"" >> "${PROFILE}"/"${ENV_NAME}"/"${ENV_NAME}"."${PROFILE}".tfvars
+  fi
+else
+  usage
+fi
