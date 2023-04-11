@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapRoles: |
+    - rolearn: arn:aws:iam::707854892645:role/usw201-dev-eks-node-group
+      username: system:node:{{EC2PrivateDNSName}}
+      groups:
+        - system:bootstrappers
+        - system:nodes
+
+
+    - rolearn: arn:aws:iam::707854892645:role/gtv-eks-deploy-role
+      username: gtv-deploy-manager
+      groups:
+        - gtv-deploy
+    - rolearn: arn:aws:iam::707854892645:role/gtv-eks-deploy-admin-role
+      username: gtv-deploy-admin-manager
+      groups:
+        - gtv-deploy-admin
+
+  mapUsers: |
+    - userarn: arn:aws:iam::707854892645:user/terraform
+      username: terraform
+      groups:
+        - system:masters
+
+  mapAccounts: |
+
